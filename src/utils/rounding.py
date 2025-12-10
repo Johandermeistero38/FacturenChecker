@@ -1,11 +1,19 @@
 def round_up_to_matrix(value, staffels):
     """
-    Rond een waarde naar boven af op basis van de matrix-staffels.
-    Bijvoorbeeld:
-    value = 173, staffels = [160,170,180,...] -> 180
+    Rond een waarde (in cm) naar boven af op basis van staffels.
+
+    Voorbeeld:
+        value = 245, staffels = [240, 250, 260]
+        -> 250
+
+        value = 505, staffels = [500, 510, 520]
+        -> 510
     """
-    for s in staffels:
-        if s >= value:
+    staffels_sorted = sorted(float(s) for s in staffels)
+
+    for s in staffels_sorted:
+        if value <= s + 1e-9:
             return s
-    # als waarde groter is dan alle staffels -> kies laatste staffel
-    return staffels[-1]
+
+    # groteren dan alle staffels -> hoogste staffel
+    return staffels_sorted[-1]
