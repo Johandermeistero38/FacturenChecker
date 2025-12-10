@@ -1,9 +1,7 @@
 from src.utils.rounding import round_up_to_matrix
 
-TARGET_FABRIC = "corsa"   # intern, we normaliseren 'cosa' -> 'corsa'
-
+TARGET_FABRIC = "corsa"
 PLOOI_ORDER = ["Enkele plooi", "Dubbele plooi", "Wave plooi", "Ring"]
-
 
 def _format_euro(value):
     if value is None:
@@ -12,107 +10,80 @@ def _format_euro(value):
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"€{s}"
 
-
 def _format_diff(diff):
     if diff is None:
         return ""
-    if abs(diff) < 0.005:
-        sign = ""
-        abs_val = 0.0
-    else:
-        sign = "+" if diff > 0 else "-"
-        abs_val = abs(diff)
-
-    s = f"{abs_val:,.2f}"
+    sign = "+" if diff > 0 else "-"
+    s = f"{abs(diff):,.2f}"
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"{sign}€{s}"
 
-
-def _collect_plooi_prices(matrices, height_cm, width_cm):
+def _collect_plooi_prices(matrices, h, w):
     prices = {}
-    key = (float(height_cm), float(width_cm))
-
+    key = (float(h), float(w))
     for plooi in PLOOI_ORDER:
-        info = matrices.get(plooi)
-        if info is None:
-            prices[plooi] = None
-        else:
-            prices[plooi] = info["prices"].get(key)
-
+        tab = matrices.get(plooi)
+        prices[plooi] = tab["prices"].get(key) if tab else None
     return prices
-
 
 def evaluate_rows(rows, matrices):
     results = []
 
-    # staffels (van Enkele plooi; de andere tabs gebruiken dezelfde maten)
     staffels_breedte = matrices["Enkele plooi"]["widths"]
     staffels_hoogte = matrices["Enkele plooi"]["heights"]
 
     for row in rows:
         fabric_raw = row["fabric"]
-        fabric_norm = fabric_raw.lower()
+        fabric = fabric_raw.lower()
         fabric_code = row.get("fabric_code", "")
 
-        # 'Cosa' normaliseren naar 'Corsa'
-        if "cosa" in fabric_norm:
-            fabric_norm = "corsa"
+        # normaliseer cosa → corsa
+        if "cosa" in fabric:
+            fabric = "corsa"
 
-        width_mm = row["width_mm"]
-        height_mm = row["height_mm"]
-        invoice_price = row["invoice_price"]
+        width_cm_orig = row["width_mm"] / 10
+        height_cm_orig = row["height_mm"] / 10
 
-        # mm -> cm
-        width_cm_orig = width_mm / 10.0
-        height_cm_orig = height_mm / 10.0
-
-        # Afronden op staffels (altijd naar boven)
         width_cm = round_up_to_matrix(width_cm_orig, staffels_breedte)
         height_cm = round_up_to_matrix(height_cm_orig, staffels_hoogte)
 
-        stof_display = f"{fabric_raw} ({fabric_code})" if fabric_code else fabric_raw
+        display_stof = f"{fabric_raw} ({fabric_code})" if fabric_code else fabric_raw
 
-        record = {
+        rec = {
             "Regel": row["raw_line"],
-            "Stof": stof_display,
-            "Afgerond": f"{int(width_cm)} x {int(height_cm)}",
-            "Factuurprijs": _format_euro(invoice_price),
+            "Stof": display_stof,
+            "Afgerond": f"{int(width_cm_orig)} x {int(height_cm_orig)}",
+            "Staffel breedte": int(width_cm),
+            "Staffel hoogte": int(height_cm),
+            "Factuurprijs": _format_euro(row["invoice_price"]),
         }
 
-        # Niet-Corsa: nog geen matrix → alles N/A
-        if fabric_norm != TARGET_FABRIC:
+        if fabric != TARGET_FABRIC:
             for plooi in PLOOI_ORDER:
-                record[plooi] = "N/A"
-            record["Beste plooi"] = ""
-            record["Verschil"] = ""
-            results.append(record)
+                rec[plooi] = "N/A"
+            rec["Beste plooi"] = ""
+            rec["Verschil"] = ""
+            results.append(rec)
             continue
 
-        # Wel Corsa/Cosa → alle plooi-prijzen ophalen
         plooi_prices = _collect_plooi_prices(matrices, height_cm, width_cm)
 
         for plooi in PLOOI_ORDER:
-            record[plooi] = _format_euro(plooi_prices.get(plooi))
+            rec[plooi] = _format_euro(plooi_prices[plooi])
 
-        # Beste plooi bepalen (kleinste absolute verschil)
         best_plooi = None
         best_diff = None
 
         for plooi, price in plooi_prices.items():
-            if price is None:
-                continue
-            diff = invoice_price - price
-            if best_diff is None or abs(diff) < abs(best_diff):
-                best_diff = diff
-                best_plooi = plooi
+            if price is not None:
+                diff = row["invoice_price"] - price
+                if best_diff is None or abs(diff) < abs(best_diff):
+                    best_diff = diff
+                    best_plooi = plooi
 
-        if best_plooi is None:
-            record["Beste plooi"] = ""
-            record["Verschil"] = ""
-        else:
-            record["Beste plooi"] = best_plooi
-            record["Verschil"] = _format_diff(best_diff)
+        rec["Beste plooi"] = best_plooi or ""
+        rec["Verschil"] = _format_diff(best_diff) if best_plooi else ""
 
-        results.append(record)
+        results.append(rec)
 
     return results
