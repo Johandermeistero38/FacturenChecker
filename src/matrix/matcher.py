@@ -1,6 +1,6 @@
 from src.utils.rounding import round_up_to_matrix
 
-TARGET_FABRIC = "corsa"
+TARGET_FABRIC = "cosa"
 
 # Plooi-volgorde zoals kolommen moeten verschijnen
 PLOOI_ORDER = ["Enkele plooi", "Dubbele plooi", "Wave plooi", "Ring"]
@@ -86,7 +86,7 @@ def evaluate_rows(rows, matrices):
         width_cm = round_up_to_matrix(width_cm_original, staffels_breedte)
         height_cm = round_up_to_matrix(height_cm_original, staffels_hoogte)
 
-        # Stofnaam tonen als: "Corsa (7)"
+        # Stofnaam tonen als: "cosa (7)"
         stof_display = (
             f"{fabric_raw} ({fabric_code})" if fabric_code else fabric_raw
         )
@@ -99,7 +99,7 @@ def evaluate_rows(rows, matrices):
             "Factuurprijs": _format_euro(invoice_price),
         }
 
-        # NIET CORSA → alleen N/A vullen
+        # NIET cosa → alleen N/A vullen
         if fabric != TARGET_FABRIC:
             for plooi in PLOOI_ORDER:
                 record[plooi] = "N/A"
@@ -108,7 +108,7 @@ def evaluate_rows(rows, matrices):
             results.append(record)
             continue
 
-        # CORSA → haal alle plooiprijzen op
+        # cosa → haal alle plooiprijzen op
         plooi_prices = _collect_plooi_prices(matrices, height_cm, width_cm)
 
         # Kolommen toevoegen
