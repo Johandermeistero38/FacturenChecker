@@ -8,82 +8,120 @@ from src.matrix.matcher import evaluate_rows
 from src.database.supplier_db import load_suppliers, get_supplier_matrix_path
 
 
-st.title("🔍 Facturen Checker – TOPPOINT")
+# ----------------------------------------------------------------------
+# APP HEADER
+# ----------------------------------------------------------------------
 
+st.set_page_config(page_title="Facturen Checker – Toppoint", layout="wide")
+
+st.title("🔍 Facturen Checker – TOPPOINT")
 st.write(
     "Upload een verkoopfactuur (PDF), kies een leverancier, "
-    "en de tool vergelijkt automatisch de gordijnprijzen met de gekoppelde prijsmatrix(en)."
+    "en de tool vergelijkt automatisch alle gordijnprijzen met de bijbehorende prijsmatrixen."
 )
 
-# 1. Factuur uploaden
-invoice_file = st.file_uploader("Upload factuur (PDF)", type=["pdf"])
 
-# 2. Leveranciers laden uit JSON
+# ----------------------------------------------------------------------
+# 1. FACTUUR UPLOADEN
+# ----------------------------------------------------------------------
+
+st.subheader("📄 1. Upload verkoopfactuur (PDF)")
+invoice_file = st.file_uploader("Upload factuur", type=["pdf"])
+
+
+# ----------------------------------------------------------------------
+# 2. LEVERANCIER KIEZEN
+# ----------------------------------------------------------------------
+
+st.subheader("🏢 2. Kies leverancier")
+
 suppliers = load_suppliers()
 supplier_keys = list(suppliers.keys())
 
-# Dropdown voor leverancier (nu alleen TOPPOINT)
 selected_supplier = st.selectbox(
-    "Kies leverancier",
+    "Selecteer leverancier",
     options=supplier_keys,
-    format_func=lambda key: suppliers[key]["display_name"]
+    format_func=lambda key: suppliers[key]["display_name"],
 )
 
-st.caption("Voor nu is alleen stof Corsa/Cosa geconfigureerd voor TOPPOINT.")
+st.caption("Op dit moment is alleen stof **Corsa/Cosa** geconfigureerd voor Toppoint.")
 
-if invoice_file and selected_supplier:
-    st.subheader("1. Prijsmatrix ophalen voor gekozen leverancier...")
 
-    try:
-        # Voor nu gebruiken we altijd stof 'corsa' (waar 'cosa' ook onder valt)
-        matrix_path = get_supplier_matrix_path(suppliers, selected_supplier, fabric_key="corsa")
-        st.write(f"Gebruik matrixbestand: `{matrix_path}`")
+# Stop als er nog geen factuur is
+if not invoice_file:
+    st.info("➡️ Upload eerst een factuur om door te gaan.")
+    st.stop()
 
-        # Laad de matrix vanuit het pad in de repo
-        matrices = load_price_matrices_from_excel(matrix_path)
-        st.success(f"Matrixen geladen: {', '.join(matrices.keys())}")
 
-        # Optioneel: staffels tonen ter controle
-        enkel = matrices.get("Enkele plooi")
-        if enkel:
-            st.write("Breedte-staffels (cm):", enkel["widths"])
-            st.write("Hoogte-staffels (cm):", enkel["heights"])
+# ----------------------------------------------------------------------
+# 3. PRIJSMATRIX LADEN
+# ----------------------------------------------------------------------
 
-    except Exception as e:
-        st.error(f"Fout bij laden van matrix voor leverancier '{selected_supplier}': {e}")
-        st.stop()
+st.subheader("📊 3. Prijsmatrix laden voor gekozen leverancier")
 
-    st.subheader("2. Factuur uitlezen...")
-    try:
-        rows = parse_invoice_pdf(invoice_file.read())
-    except Exception as e:
-        st.error(f"Fout bij lezen/analyseren factuur: {e}")
-        st.stop()
+try:
+    # Voor nu: één stof 'corsa' (waar 'cosa' ook onder valt)
+    matrix_path = get_supplier_matrix_path(suppliers, selected_supplier, fabric_key="corsa")
 
-    if not rows:
-        st.warning("Geen gordijnregels gevonden in de factuur. "
-                   "Mogelijk moet de parser nog verder worden uitgebreid.")
-        st.stop()
+    st.success(f"Prijsmatrix gevonden voor Toppoint: `{matrix_path}`")
 
-    st.info(f"{len(rows)} gordijnregels gevonden.")
+    matrices = load_price_matrices_from_excel(matrix_path)
 
-    st.subheader("3. Prijzen vergelijken met matrix...")
-    results = evaluate_rows(rows, matrices)
-    df = pd.DataFrame(results)
+    st.info(f"Matrixen geladen: **{', '.join(matrices.keys())}**")
 
-    st.dataframe(df, use_container_width=True)
+except Exception as e:
+    st.error(f"❌ Fout bij laden van prijsmatrix: {e}")
+    st.stop()
 
-    # Download als Excel
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Resultaten")
-    output.seek(0)
 
-    st.download_button(
-        label="📥 Download resultaten als Excel",
-        data=output,
-        file_name="facturencheck_resultaten.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-else:
-    st.info("Upload eerst een factuur en kies een leverancier om de controle uit te voeren.")
+# ----------------------------------------------------------------------
+# 4. FACTUUR UITLEZEN
+# ----------------------------------------------------------------------
+
+st.subheader("📑 4. Factuur analyseren...")
+
+try:
+    rows = parse_invoice_pdf(invoice_file.read())
+except Exception as e:
+    st.error(f"❌ Fout bij uitlezen van factuur: {e}")
+    st.stop()
+
+if not rows:
+    st.warning("⚠️ Er zijn geen gordijnregels gevonden in de factuur.")
+    st.stop()
+
+st.success(f"✔️ {len(rows)} gordijnregels gevonden.")
+
+
+# ----------------------------------------------------------------------
+# 5. VERGELIJKEN MET MATRIX
+# ----------------------------------------------------------------------
+
+st.subheader("🧮 5. Prijzen vergelijken met prijsmatrix...")
+
+results = evaluate_rows(rows, matrices)
+df = pd.DataFrame(results)
+
+# Optioneel: kolombreedte verbeteren
+st.dataframe(df, use_container_width=True, height=600)
+
+
+# ----------------------------------------------------------------------
+# 6. EXPORTEREN
+# ----------------------------------------------------------------------
+
+st.subheader("📥 6. Resultaten downloaden")
+
+output = io.BytesIO()
+with pd.ExcelWriter(output, engine="openpyxl") as writer:
+    df.to_excel(writer, index=False, sheet_name="Resultaten")
+output.seek(0)
+
+st.download_button(
+    label="📥 Download resultaten als Excel",
+    data=output,
+    file_name="facturencheck_resultaten.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
+
+st.success("✔️ Vergelijking voltooid! Je kunt de resultaten downloaden.")
