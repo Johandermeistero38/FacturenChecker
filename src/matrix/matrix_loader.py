@@ -1,11 +1,23 @@
 import pandas as pd
 
+
 def load_price_matrices_from_excel(excel_file):
     """
-    Leest JOUW matrix exact zoals de structuur is:
-    - Rij 2 bevat breedtes (Excel index 1)
-    - Kolom A bevat hoogtes (Excel index 0)
-    - Prijzen starten op rij 3, kolom B (index 2:, 1:)
+    Leest jouw matrix exact zoals opgebouwd:
+
+    - Rij 1 (index 0)   : breedtes in kolommen B.. (B1, C1, D1, ...)
+    - Kolom A vanaf rij 2 (index 1..): hoogtes (A2, A3, ...)
+    - Prijzen starten op B2 (index [1:, 1:])
+
+    Returned per sheet:
+    {
+      "Enkele plooi": {
+          "widths": [...],   # staffels breedte
+          "heights": [...],  # staffels hoogte
+          "prices": {(hoogte, breedte): prijs}
+      },
+      ...
+    }
     """
     matrices = {}
     xls = pd.ExcelFile(excel_file)
@@ -13,16 +25,16 @@ def load_price_matrices_from_excel(excel_file):
     for sheet in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name=sheet, header=None)
 
-        # Breedtes (rij 1 in pandas = Excel rij 2)
-        widths = df.iloc[1, 1:].tolist()
-        widths = sorted([float(x) for x in widths])
+        # Breedtes: rij 0, kolommen vanaf 1
+        widths_raw = [x for x in df.iloc[0, 1:].tolist() if not pd.isna(x)]
+        widths = [float(x) for x in widths_raw]
 
-        # Hoogtes (rij 2 in pandas = Excel rij 3)
-        heights = df.iloc[2:, 0].tolist()
-        heights = sorted([float(x) for x in heights])
+        # Hoogtes: kolom 0, rijen vanaf 1
+        heights_raw = [x for x in df.iloc[1:, 0].tolist() if not pd.isna(x)]
+        heights = [float(x) for x in heights_raw]
 
-        # Prijs tabel
-        price_df = df.iloc[2:, 1:]
+        # Prijzen: vanaf rij 1, kolom 1
+        price_df = df.iloc[1 : 1 + len(heights), 1 : 1 + len(widths)]
         price_df.columns = widths
         price_df.index = heights
 
@@ -30,13 +42,14 @@ def load_price_matrices_from_excel(excel_file):
         for h in heights:
             for w in widths:
                 v = price_df.at[h, w]
-                if not pd.isna(v):
-                    lookup[(h, w)] = float(v)
+                if pd.isna(v):
+                    continue
+                lookup[(h, w)] = float(v)
 
         matrices[sheet] = {
-            "widths": widths,
-            "heights": heights,
-            "prices": lookup
+            "widths": sorted(widths),
+            "heights": sorted(heights),
+            "prices": lookup,
         }
 
     return matrices
