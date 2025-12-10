@@ -1,0 +1,11 @@
+{
+  "toppoint": {
+    "display_name": "TOPPOINT",
+    "fabrics": {
+      "corsa": {
+        "aliases": ["corsa", "cosa"],
+        "matrix_path": "data/matrices/toppoint/Cosa price matrix.xlsx"
+      }
+    }
+  }
+}
