@@ -1,6 +1,11 @@
-def round_to_10_up(value_mm: float) -> float:
-    value_cm = value_mm / 10
-    remainder = value_cm % 10
-    if remainder == 0:
-        return value_cm
-    return value_cm + (10 - remainder)
+def round_up_to_matrix(value, staffels):
+    """
+    Rond een waarde naar boven af op basis van de matrix-staffels.
+    Bijvoorbeeld:
+    value = 173, staffels = [160,170,180,...] -> 180
+    """
+    for s in staffels:
+        if s >= value:
+            return s
+    # als waarde groter is dan alle staffels -> kies laatste staffel
+    return staffels[-1]
