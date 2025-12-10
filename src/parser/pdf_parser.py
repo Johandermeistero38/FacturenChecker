@@ -2,7 +2,20 @@ import re
 import io
 from PyPDF2 import PdfReader
 
+
 def parse_invoice_pdf(pdf_bytes):
+    """
+    Leest de PDF en haalt per GORDIJN Curtain-regel:
+    - breedte_mm
+    - hoogte_mm
+    - stofnaam
+    - stofcode (optioneel)
+    - factuurprijs
+
+    Voorbeeldregel:
+    '001    1   GORDIJN Curtain 5050 x 2450 mm, Dos Lados 2 almond      14      360,06'
+    """
+
     reader = PdfReader(io.BytesIO(pdf_bytes))
     text = ""
     for page in reader.pages:
@@ -12,16 +25,12 @@ def parse_invoice_pdf(pdf_bytes):
     lines = text.splitlines()
     parsed_rows = []
 
-    # REGEX:
-    # - match breedte & hoogte in mm (3–5 cijfers)
-    # - 'x' met willekeurige spaties
-    # - mm direct erachter of met spatie
-    # - stofnaam = woord + nummer
-    # - prijs komt later (we halen alleen maten + stof nu al goed eruit)
+    # Maat + stof:
+    # Curtain 5050 x 2450 mm, Cosa 7 almond
     pattern = re.compile(
         r"""
         Curtain\s+
-        (?P<width>\d{3,5})      # breedte in mm
+        (?P<width>\d{3,5})      # breedte in mm (3-5 cijfers)
         \s*x\s*
         (?P<height>\d{3,5})     # hoogte in mm
         \s*mm[, ]*
@@ -32,44 +41,46 @@ def parse_invoice_pdf(pdf_bytes):
         re.VERBOSE,
     )
 
-    # Regex voor EUR prijzen: 360,06 / 1.250,50 etc
+    # Prijs: 360,06 of 1.250,50 etc.
     price_pattern = re.compile(r"(\d{1,3}(?:\.\d{3})*,\d{2})")
 
-    for line in lines:
-        match = pattern.search(line)
-        if not match:
+    for idx, line in enumerate(lines):
+        m = pattern.search(line)
+        if not m:
             continue
 
-        width_mm = int(match.group("width"))
-        height_mm = int(match.group("height"))
-        fabric = match.group("fabric")
-        fabric_code = match.group("fabric_code") or ""
+        width_mm = int(m.group("width"))
+        height_mm = int(m.group("height"))
+        fabric = m.group("fabric")
+        fabric_code = m.group("fabric_code") or ""
 
-        # Zoek prijs in dezelfde regel OF toekomstige regels
-        price = None
-        price_match_line = price_pattern.search(line)
-        if price_match_line:
-            price = price_match_line.group(1)
+        # Prijs zoeken: eerst in dezelfde regel, anders in de volgende paar regels
+        price_str = None
+        pm = price_pattern.search(line)
+        if pm:
+            price_str = pm.group(1)
         else:
-            # zoek in volgende regels
-            for lookahead in lines:
-                m2 = price_pattern.search(lookahead)
-                if m2:
-                    price = m2.group(1)
+            # kijk maximaal 3 regels vooruit
+            for lookahead in lines[idx:idx+4]:
+                pm2 = price_pattern.search(lookahead)
+                if pm2:
+                    price_str = pm2.group(1)
                     break
 
-        if price:
-            invoice_price = float(price.replace(".", "").replace(",", "."))
+        if price_str:
+            invoice_price = float(price_str.replace(".", "").replace(",", "."))
         else:
-            invoice_price = 0.0
+            invoice_price = 0.0  # fallback
 
-        parsed_rows.append({
-            "raw_line": line.strip(),
-            "width_mm": width_mm,
-            "height_mm": height_mm,
-            "fabric": fabric,
-            "fabric_code": fabric_code,
-            "invoice_price": invoice_price
-        })
+        parsed_rows.append(
+            {
+                "raw_line": line.strip(),
+                "width_mm": width_mm,
+                "height_mm": height_mm,
+                "fabric": fabric,
+                "fabric_code": fabric_code,
+                "invoice_price": invoice_price,
+            }
+        )
 
     return parsed_rows
