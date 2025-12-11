@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 
-from src.database.supplier_db import load_supplier_config
-from src.matrix.matrix_loader import load_price_matrix
-from src.matrix.matcher import evaluate_rows
-from src.parser.pdf_parser import extract_rows_from_pdf
+from database.supplier_db import load_supplier_config
+from matrix.matrix_loader import load_price_matrix
+from matrix.matcher import evaluate_rows
+from parser.pdf_parser import extract_rows_from_pdf
+
 
 # ---------------------------------------------------------
 # Pagina-instellingen
