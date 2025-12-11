@@ -2,16 +2,16 @@
   "toppoint": {
     "display_name": "TOPPOINT",
     "fabrics": {
-      "Cosa": {
-        "aliases": ["cosa"],
+      "Corsa": {
+        "aliases": ["corsa", "cosa", "cosa ", "cosa(", "corsa("],
         "matrix_path": "data/matrices/toppoint/Cosa price matrix.xlsx"
       },
       "Dos Lados": {
-        "aliases": ["dos lados"],
+        "aliases": ["dos lados", "doslados", "dos-lados"],
         "matrix_path": "data/matrices/toppoint/Dos Lados price matrix.xlsx"
       },
       "Isola": {
-        "aliases": ["isola"],
+        "aliases": ["isola", "isola ", "isla"],
         "matrix_path": "data/matrices/toppoint/Isola price matrix.xlsx"
       },
       "Marsa": {
@@ -19,15 +19,15 @@
         "matrix_path": "data/matrices/toppoint/Marsa price matrix.xlsx"
       },
       "Mey": {
-        "aliases": ["mey"],
+        "aliases": ["mey", "mey("],
         "matrix_path": "data/matrices/toppoint/Mey price matrix.xlsx"
       },
       "Bo Mixx": {
-        "aliases": ["b0 mixx", "bo mixx"],
+        "aliases": ["bo mixx", "b0 mixx", "mixx b0"],
         "matrix_path": "data/matrices/toppoint/B0 Mixx price matrix.xlsx"
       },
       "Mixx": {
-        "aliases": ["mixx"],
+        "aliases": ["mixx", "mix"],
         "matrix_path": "data/matrices/toppoint/Mixx price matrix.xlsx"
       },
       "Matiz": {
@@ -47,7 +47,7 @@
         "matrix_path": "data/matrices/toppoint/Vintage price matrix.xlsx"
       },
       "Cotton FR": {
-        "aliases": ["cotton fr"],
+        "aliases": ["cotton fr", "cotton", "cottonfr"],
         "matrix_path": "data/matrices/toppoint/Cotton FR price matrix.xlsx"
       },
       "Saludo": {
