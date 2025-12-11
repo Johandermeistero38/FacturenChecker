@@ -1,114 +1,106 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
 
-from src.parser.pdf_parser import parse_invoice_pdf
+from src.database.supplier_db import load_supplier_config
+from src.matrix.matrix_loader import load_price_matrix
 from src.matrix.matcher import evaluate_rows
-from src.database.supplier_db import load_suppliers
+from src.parser.pdf_parser import extract_rows_from_pdf
 
-# -----------------------------
-# Basis instellingen
-# -----------------------------
+# ---------------------------------------------------------
+# Pagina-instellingen
+# ---------------------------------------------------------
 st.set_page_config(page_title="Facturen Checker – TOPPOINT", layout="wide")
 
 st.title("🔍 Facturen Checker – TOPPOINT")
-st.write(
-    "Upload een verkoopfactuur (PDF). De tool leest automatisch alle gordijnregels, "
-    "zoekt de bijbehorende prijsmatrix en vergelijkt de prijzen."
-)
 
-# -----------------------------
-# 1. Leverancier kiezen
-# -----------------------------
-st.subheader("1. Kies leverancier")
+# ---------------------------------------------------------
+# 1. Kies leverancier
+# ---------------------------------------------------------
+st.header("1. Kies leverancier")
 
-suppliers = load_suppliers()
-supplier_keys = list(suppliers.keys())  # bv. ['toppoint']
+suppliers = load_supplier_config()
+supplier_names = [s["name"] for s in suppliers]
 
-selected_supplier = st.selectbox(
-    "Selecteer leverancier",
-    options=supplier_keys,
-    format_func=lambda key: suppliers[key].get("display_name", key.upper()),
-)
+supplier_choice = st.selectbox("Selecteer leverancier", supplier_names)
 
-# -----------------------------
+supplier_key = None
+for s in suppliers:
+    if s["name"] == supplier_choice:
+        supplier_key = s["key"]
+        break
+
+if not supplier_key:
+    st.error("Kon leverancier niet vinden in database!")
+    st.stop()
+
+# ---------------------------------------------------------
 # 2. Upload factuur
-# -----------------------------
-st.subheader("2. Upload verkoopfactuur (PDF)")
+# ---------------------------------------------------------
+st.header("💾 2. Upload verkoopfactuur (PDF)")
 
-uploaded_file = st.file_uploader("Kies een PDF-bestand", type=["pdf"])
+uploaded_pdf = st.file_uploader("Upload factuur", type=["pdf"])
 
-if not uploaded_file:
-    st.info("➡️ Upload eerst een factuur om verder te gaan.")
+if not uploaded_pdf:
+    st.info("⬆️ Upload eerst een factuur om verder te gaan.")
     st.stop()
 
-# -----------------------------
+# ---------------------------------------------------------
 # 3. Factuur uitlezen
-# -----------------------------
-st.subheader("3. Factuur uitlezen en regels herkennen")
+# ---------------------------------------------------------
+st.header("📄 3. Factuur uitlezen en regels herkennen")
 
 try:
-    content = uploaded_file.read()
-    rows = parse_invoice_pdf(content)  # verwacht: lijst met dicts per regel
+    invoice_rows = extract_rows_from_pdf(uploaded_pdf)
+    st.success(f"✔️ {len(invoice_rows)} gordijnregels gevonden.")
 except Exception as e:
-    st.error(f"❌ Fout bij uitlezen van factuur: {e}")
+    st.error(f"Fout bij uitlezen van factuur: {e}")
     st.stop()
 
-if not rows:
-    st.warning("⚠️ Er zijn geen gordijnregels gevonden in deze factuur.")
-    st.stop()
-
-st.success(f"✔ {len(rows)} gordijnregels gevonden.")
-
-# -----------------------------
-# 4. Prijzen vergelijken
-# -----------------------------
-st.subheader("4. Prijzen vergelijken met prijsmatrix(en)")
+# ---------------------------------------------------------
+# 4. Matrix laden
+# ---------------------------------------------------------
+st.header("📊 4. Prijzen vergelijken met prijsmatrix(en)")
 
 try:
-    # evaluate_rows gebruikt intern de supplier-config (via supplier_db / matrix_loader)
-    results = evaluate_rows(rows)
+    matrices = load_price_matrix(supplier_key)
+except Exception as e:
+    st.error(f"❌ Fout bij laden van matrix: {e}")
+    st.stop()
+
+# ---------------------------------------------------------
+# 5. Vergelijking uitvoeren
+# ---------------------------------------------------------
+st.write("Bezig met berekenen...")
+
+try:
+    result_df = evaluate_rows(invoice_rows, matrices)
 except Exception as e:
     st.error(f"❌ Fout bij vergelijken met prijsmatrix(en): {e}")
     st.stop()
 
-df = pd.DataFrame(results)
+st.success("✔️ Vergelijking voltooid!")
 
-toon_tabel = st.checkbox("Toon resultaten in de browser", value=True)
-if toon_tabel:
-    st.dataframe(df, use_container_width=True)
+st.dataframe(result_df)
 
-# -----------------------------
-# 5. Resultaten downloaden
-# -----------------------------
-st.subheader("5. Resultaten downloaden")
+# ---------------------------------------------------------
+# 6. Exportfunctie
+# ---------------------------------------------------------
+st.header("📤 5. Resultaten exporteren")
 
-bestandsnaam = st.text_input("Bestandsnaam (zonder extensie)", value="factuurcheck_resultaten")
+export_name = st.text_input("Bestandsnaam (zonder extensie):", "factuurcontrole")
 
-export_formaat = st.radio(
-    "Kies exportformaat",
-    options=["Excel (.xlsx)", "CSV (.csv)"],
-    index=0,
-    horizontal=True,
-)
+export_format = st.selectbox("Exportformaat:", ["Excel (.xlsx)", "CSV (.csv)"])
 
-if export_formaat.startswith("Excel"):
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Resultaten")
-    buffer.seek(0)
-    data = buffer
-    filename = f"{bestandsnaam}.xlsx"
-    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-else:
-    csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
-    data = csv_bytes
-    filename = f"{bestandsnaam}.csv"
-    mime = "text/csv"
+if st.button("Download"):
+    if export_format == "Excel (.xlsx)":
+        file = result_df.to_excel(index=False, engine="openpyxl")
+        st.success("✔️ Excel-bestand gedownload.")
+    else:
+        file = result_df.to_csv(index=False).encode("utf-8")
+        st.success("✔️ CSV-bestand gedownload.")
 
-st.download_button(
-    label="📥 Download resultaten",
-    data=data,
-    file_name=filename,
-    mime=mime,
-)
+    st.download_button(
+        label="📥 Download bestand",
+        data=file,
+        file_name=f"{export_name}{'.xlsx' if export_format.startswith('Excel') else '.csv'}"
+    )
