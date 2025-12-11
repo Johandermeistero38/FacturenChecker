@@ -2,11 +2,12 @@ import streamlit as st
 import tempfile
 import pandas as pd
 
-from src.pdf_parser.pdf_parser import extract_rows_from_pdf
-from src.matrix_loader import load_supplier_matrices
-from src.matcher import evaluate_rows
+from src.parser.pdf_parser import extract_rows_from_pdf
+from src.matrix.matrix_loader import load_supplier_matrices
+from src.matrix.matcher import evaluate_rows
 
 st.set_page_config(page_title="Facturen Checker – TOPPOINT", layout="wide")
+
 st.title("🔍 Facturen Checker – TOPPOINT")
 
 st.header("1. Kies leverancier")
