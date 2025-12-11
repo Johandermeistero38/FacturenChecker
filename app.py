@@ -1,9 +1,19 @@
+import sys
+import os
 import streamlit as st
 import pandas as pd
 
+# ====== FIX: Zorg dat Streamlit de /src map kan vinden ======
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SRC_DIR = os.path.join(BASE_DIR, "src")
+
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+
+# ====== IMPORTS (GEEN src. MEER!) ======
 from database.supplier_db import load_supplier_config
-from matrix.matrix_loader import load_price_matrix
 from matrix.matcher import evaluate_rows
+from matrix.matrix_loader import load_price_matrices
 from parser.pdf_parser import extract_rows_from_pdf
 
 
