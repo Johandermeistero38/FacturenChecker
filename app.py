@@ -17,10 +17,10 @@ if SRC_DIR not in sys.path:
 #   PROJECT IMPORTS
 # ============================================================
 
-from database.supplier_db import load_supplier_config
-from matrix.matcher import evaluate_rows
-from matrix.matrix_loader import load_price_matrices
-from parser.pdf_parser import extract_rows_from_pdf
+from src.database.supplier_db import load_supplier_config
+from src.matrix.matcher import evaluate_rows
+from src.matrix.matrix_loader import load_price_matrices
+from src.parser.pdf_parser import extract_rows_from_pdf
 
 # ============================================================
 #   STREAMLIT INTERFACE
