@@ -1,70 +1,48 @@
 import pandas as pd
 
-
 def load_price_matrices_from_excel(path):
     """
-    Leest een Excel bestand met meerdere tabbladen (Enkele plooi, Dubbele plooi, Wave plooi, Ring)
-    en zet elke matrix om naar een gestandaardiseerd formaat:
-
-    {
-        "Enkele plooi": {
-            "widths": [...],
-            "heights": [...],
-            "grid": [[...], [...], ...]
-        },
-        "Dubbele plooi": {...},
-        ...
-    }
+    Laadt één Excel-bestand met 4 tabbladen (Enkele, Dubbele, Wave, Ring)
+    en zorgt dat rijen en kolommen altijd integers zijn.
     """
 
-    xls = pd.ExcelFile(path)
+    sheets = ["Enkele plooi", "Dubbele plooi", "Wave plooi", "Ring"]
     matrices = {}
 
-    for sheet_name in xls.sheet_names:
+    try:
+        excel = pd.ExcelFile(path)
+    except Exception as e:
+        raise ValueError(f"Kan Excel niet openen: {e}")
 
-        df = pd.read_excel(path, sheet_name=sheet_name, header=None)
-
-        # -----------------------------
-        # Controle: is de sheet leeg?
-        # -----------------------------
-        if df.empty:
+    for sheet in sheets:
+        if sheet not in excel.sheet_names:
+            matrices[sheet] = None
             continue
 
-        # -----------------------------
-        # 1. Breedtes staan in rij 0, vanaf kolom 1
-        # -----------------------------
-        widths = df.iloc[0, 1:].tolist()
+        df = excel.parse(sheet, header=0)
 
-        # -----------------------------
-        # 2. Hoogtes staan in kolom 0, vanaf rij 1
-        # -----------------------------
-        heights = df.iloc[1:, 0].tolist()
+        # Eerste kolom moet de hoogte index worden
+        df = df.rename(columns={df.columns[0]: "height"})
+        df = df.set_index("height")
 
-        # -----------------------------
-        # 3. De daadwerkelijke prijs-matrix
-        # -----------------------------
-        grid = df.iloc[1:, 1:].values.tolist()
+        # Convert ALL row + column labels to integers
+        try:
+            df.index = df.index.astype(int)
+        except:
+            df.index = df.index.astype(str).str.extract(r"(\d+)").astype(int)
 
-        # -----------------------------
-        # Alles converteren naar floats
-        # -----------------------------
-        def to_float(v):
-            try:
-                return float(str(v).replace(",", "."))
-            except:
-                return None
+        try:
+            df.columns = df.columns.astype(int)
+        except:
+            df.columns = df.columns.astype(str).str.extract(r"(\d+)").astype(int)
 
-        widths = [to_float(v) for v in widths]
-        heights = [to_float(v) for v in heights]
+        # Convert values to floats
+        df = df.apply(pd.to_numeric, errors="coerce")
 
-        clean_grid = []
-        for row in grid:
-            clean_grid.append([to_float(v) for v in row])
+        matrices[sheet] = df
 
-        matrices[sheet_name] = {
-            "widths": widths,
-            "heights": heights,
-            "grid": clean_grid
-        }
+    # Verzamel alle unieke breedtes en hoogtes
+    all_widths = matrices["Enkele plooi"].columns.tolist()
+    all_heights = matrices["Enkele plooi"].index.tolist()
 
-    return matrices
+    return matrices, all_widths, all_heights
