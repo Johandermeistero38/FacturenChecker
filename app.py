@@ -1,143 +1,114 @@
-import io
+import streamlit as st
+import pandas as pd
+from io import BytesIO
 
 from src.parser.pdf_parser import parse_invoice_pdf
-from src.matrix.matrix_loader import load_price_matrices_from_excel
 from src.matrix.matcher import evaluate_rows
-from src.database.supplier_db import load_suppliers, get_supplier_matrix_path
 from src.database.supplier_db import load_suppliers
 
-
-# ----------------------------------------------------------------------
-# APP HEADER
-# ----------------------------------------------------------------------
-
-st.set_page_config(page_title="Facturen Checker – Toppoint", layout="wide")
-# ---------------------------------------
-# Streamlit pagina instellingen
-# ---------------------------------------
+# -----------------------------
+# Basis instellingen
+# -----------------------------
 st.set_page_config(page_title="Facturen Checker – TOPPOINT", layout="wide")
 
 st.title("🔍 Facturen Checker – TOPPOINT")
 st.write(
-    "Upload een verkoopfactuur (PDF), kies een leverancier, "
-    "en de tool vergelijkt automatisch alle gordijnprijzen met de bijbehorende prijsmatrixen."
-    "Upload een verkoopfactuur (PDF). De tool herkent per regel automatisch de stof, "
-    "zoekt de juiste prijsmatrix op en vergelijkt de prijzen per plooi."
+    "Upload een verkoopfactuur (PDF). De tool leest automatisch alle gordijnregels, "
+    "zoekt de bijbehorende prijsmatrix en vergelijkt de prijzen."
 )
 
+# -----------------------------
+# 1. Leverancier kiezen
+# -----------------------------
+st.subheader("1. Kies leverancier")
 
-# ----------------------------------------------------------------------
-# 1. FACTUUR UPLOADEN
-# ----------------------------------------------------------------------
-
-st.subheader("📄 1. Upload verkoopfactuur (PDF)")
-invoice_file = st.file_uploader("Upload factuur", type=["pdf"])
-
-
-# ----------------------------------------------------------------------
-# 2. LEVERANCIER KIEZEN
-# ----------------------------------------------------------------------
-
-st.subheader("🏢 2. Kies leverancier")
-
-# ---------------------------------------
-# Leveranciers laden
-# ---------------------------------------
 suppliers = load_suppliers()
-supplier_keys = list(suppliers.keys())
+supplier_keys = list(suppliers.keys())  # bv. ['toppoint']
 
-st.subheader("🏢 1. Kies leverancier")
 selected_supplier = st.selectbox(
     "Selecteer leverancier",
     options=supplier_keys,
-    format_func=lambda key: suppliers[key]["display_name"],
+    format_func=lambda key: suppliers[key].get("display_name", key.upper()),
 )
 
-st.caption("Op dit moment is alleen stof **Corsa/Cosa** geconfigureerd voor Toppoint.")
+# -----------------------------
+# 2. Upload factuur
+# -----------------------------
+st.subheader("2. Upload verkoopfactuur (PDF)")
 
+uploaded_file = st.file_uploader("Kies een PDF-bestand", type=["pdf"])
 
-# Stop als er nog geen factuur is
-if not invoice_file:
-    st.info("➡️ Upload eerst een factuur om door te gaan.")
-    st.stop()
-
-
-# ----------------------------------------------------------------------
-# 3. PRIJSMATRIX LADEN
-# ----------------------------------------------------------------------
-st.caption("Momenteel is één leverancier geconfigureerd: TOPPOINT.")
-
-st.subheader("📊 3. Prijsmatrix laden voor gekozen leverancier")
-
-try:
-    # Voor nu: één stof 'corsa' (waar 'cosa' ook onder valt)
-    matrix_path = get_supplier_matrix_path(suppliers, selected_supplier, fabric_key="corsa")
-
-    st.success(f"Prijsmatrix gevonden voor Toppoint: `{matrix_path}`")
-
-    matrices = load_price_matrices_from_excel(matrix_path)
-
-    st.info(f"Matrixen geladen: **{', '.join(matrices.keys())}**")
-# ---------------------------------------
-# Factuur uploaden
-# ---------------------------------------
-st.subheader("📄 2. Upload verkoopfactuur (PDF)")
-invoice_file = st.file_uploader("Upload factuur", type=["pdf"])
-
-except Exception as e:
-    st.error(f"❌ Fout bij laden van prijsmatrix: {e}")
-if not invoice_file:
+if not uploaded_file:
     st.info("➡️ Upload eerst een factuur om verder te gaan.")
     st.stop()
 
-
-# ----------------------------------------------------------------------
-# 4. FACTUUR UITLEZEN
-# ----------------------------------------------------------------------
-
-st.subheader("📑 4. Factuur analyseren...")
-# ---------------------------------------
-# Factuur analyseren
-# ---------------------------------------
-st.subheader("📑 3. Factuur uitlezen en regels herkennen")
+# -----------------------------
+# 3. Factuur uitlezen
+# -----------------------------
+st.subheader("3. Factuur uitlezen en regels herkennen")
 
 try:
-    rows = parse_invoice_pdf(invoice_file.read())
-@@ -93,24 +64,26 @@
-st.success(f"✔️ {len(rows)} gordijnregels gevonden.")
+    content = uploaded_file.read()
+    rows = parse_invoice_pdf(content)  # verwacht: lijst met dicts per regel
+except Exception as e:
+    st.error(f"❌ Fout bij uitlezen van factuur: {e}")
+    st.stop()
 
+if not rows:
+    st.warning("⚠️ Er zijn geen gordijnregels gevonden in deze factuur.")
+    st.stop()
 
-# ----------------------------------------------------------------------
-# 5. VERGELIJKEN MET MATRIX
-# ----------------------------------------------------------------------
-# ---------------------------------------
-# Prijzen vergelijken per regel / per stof
-# ---------------------------------------
-st.subheader("🧮 4. Prijzen vergelijken met prijsmatrix(en)")
+st.success(f"✔ {len(rows)} gordijnregels gevonden.")
 
-st.subheader("🧮 5. Prijzen vergelijken met prijsmatrix...")
+# -----------------------------
+# 4. Prijzen vergelijken
+# -----------------------------
+st.subheader("4. Prijzen vergelijken met prijsmatrix(en)")
+
 try:
-    results = evaluate_rows(rows, supplier_key=selected_supplier)
+    # evaluate_rows gebruikt intern de supplier-config (via supplier_db / matrix_loader)
+    results = evaluate_rows(rows)
 except Exception as e:
     st.error(f"❌ Fout bij vergelijken met prijsmatrix(en): {e}")
     st.stop()
 
-results = evaluate_rows(rows, matrices)
 df = pd.DataFrame(results)
 
-# Optioneel: kolombreedte verbeteren
-st.dataframe(df, use_container_width=True, height=600)
+toon_tabel = st.checkbox("Toon resultaten in de browser", value=True)
+if toon_tabel:
+    st.dataframe(df, use_container_width=True)
 
+# -----------------------------
+# 5. Resultaten downloaden
+# -----------------------------
+st.subheader("5. Resultaten downloaden")
 
-# ----------------------------------------------------------------------
-# 6. EXPORTEREN
-# ----------------------------------------------------------------------
+bestandsnaam = st.text_input("Bestandsnaam (zonder extensie)", value="factuurcheck_resultaten")
 
-st.subheader("📥 6. Resultaten downloaden")
-# ---------------------------------------
-# Resultaten exporteren
-# ---------------------------------------
-st.subheader("📥 5. Resultaten downloaden")
+export_formaat = st.radio(
+    "Kies exportformaat",
+    options=["Excel (.xlsx)", "CSV (.csv)"],
+    index=0,
+    horizontal=True,
+)
 
-output = io.BytesIO()
-with pd.ExcelWriter(output, engine="openpyxl") as writer:
+if export_formaat.startswith("Excel"):
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Resultaten")
+    buffer.seek(0)
+    data = buffer
+    filename = f"{bestandsnaam}.xlsx"
+    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+else:
+    csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
+    data = csv_bytes
+    filename = f"{bestandsnaam}.csv"
+    mime = "text/csv"
+
+st.download_button(
+    label="📥 Download resultaten",
+    data=data,
+    file_name=filename,
+    mime=mime,
+)
