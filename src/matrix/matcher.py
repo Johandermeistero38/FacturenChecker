@@ -1,7 +1,5 @@
 import re
-import math
 
-# Herken stof uit regel
 def detect_stof(row_text, available_matrices):
     row_text = row_text.lower()
 
@@ -24,10 +22,10 @@ def extract_sizes(text):
     if not match:
         return None, None
 
-    b = int(match.group(1)) / 10  # mm → cm
-    h = int(match.group(2)) / 10
+    breedte = int(match.group(1)) / 10
+    hoogte = int(match.group(2)) / 10
 
-    return round_to_matrix(b), round_to_matrix(h)
+    return round_to_matrix(breedte), round_to_matrix(hoogte)
 
 
 def evaluate_rows(rows, matrices):
@@ -60,7 +58,7 @@ def evaluate_rows(rows, matrices):
         matrix = matrices[stof]
 
         try:
-            matrix_prijs = matrix.loc[hoogte, breedte]
+            matrix_prijs = matrix.loc[int(hoogte), int(breedte)]
         except:
             matrix_prijs = None
 
@@ -71,7 +69,7 @@ def evaluate_rows(rows, matrices):
             "Hoogte": hoogte,
             "Matrixprijs": matrix_prijs,
             "Factuurprijs": prijs,
-            "Verschil": round(prijs - matrix_prijs, 2) if matrix_prijs else "N/A"
+            "Verschil": prijs - matrix_prijs if matrix_prijs else "N/A"
         })
 
     return results
