@@ -2,7 +2,7 @@ import pandas as pd
 import os
 
 def load_supplier_matrices(supplier):
-    base_path = f"data/matrices/TopPoint/"  # alleen toppoint voor nu
+    base_path = "data/matrices/toppoint"
 
     matrices = {}
 
