@@ -1,159 +1,97 @@
-from src.database.supplier_db import load_suppliers, get_matrix_path_for_fabric
+import pandas as pd
+from src.database.supplier_db import get_matrix_path_for_fabric
 from src.matrix.matrix_loader import load_price_matrices_from_excel
 from src.utils.rounding import round_up_to_matrix
 
 PLOOI_TYPES = ["Enkele plooi", "Dubbele plooi", "Wave plooi", "Ring"]
 
 
-def _format_euro(value):
-    if value is None:
-        return "N/A"
-    return f"€{value:.2f}".replace(".", ",")
-
-
-def _format_diff(diff):
-    if diff is None:
-        return ""
-    sign = "+" if diff > 0 else ""
-    return f"{sign}€{diff:.2f}".replace(".", ",")
-
-
 def evaluate_rows(rows, supplier_key="toppoint", progress_callback=None):
     """
-    Voor ELKE regel:
-    - juiste stof bepalen
-    - juiste matrix voor die stof laden
-    - staffelmaten zoeken
-    - plooiprijzen ophalen
-    - match bepalen
-
-    progress_callback(optional): functie die wordt aangeroepen als
-    progress_callback(done, total)
+    Vergelijkt elke gordijnregel met de juiste prijsmatrix.
+    Returned een lijst records geschikt voor DataFrame.
     """
-
-    suppliers = load_suppliers()
-    supplier = suppliers[supplier_key]
-
     results = []
     total = len(rows)
 
     for idx, row in enumerate(rows):
+        if progress_callback:
+            progress_callback((idx + 1) / total)
+
         fabric = row["fabric"]
         width_mm = row["width_mm"]
         height_mm = row["height_mm"]
-        factuurprijs = row["invoice_price"]
+        invoice_price = row["invoice_price"]
 
-        # -------------------------
-        # 1. Probeer matrix te vinden voor deze stof
-        # -------------------------
-        try:
-            matrix_path = get_matrix_path_for_fabric(supplier, fabric)
-            matrices = load_price_matrices_from_excel(matrix_path)
-            matrix_ok = True
-        except Exception:
-            matrices = None
-            matrix_ok = False
-
-        # -------------------------
-        # 2. cm afronden op staffels (alleen als matrix bestaat)
-        # -------------------------
-        width_cm = width_mm / 10
-        height_cm = height_mm / 10
-
-        if matrix_ok:
-            bw = matrices["Enkele plooi"]["widths"]
-            bh = matrices["Enkele plooi"]["heights"]
-
-            w_round = round_up_to_matrix(width_cm, bw)
-            h_round = round_up_to_matrix(height_cm, bh)
-        else:
-            w_round = None
-            h_round = None
-
-        # -------------------------
-        # 3. Record basis
-        # -------------------------
-        rec = {
-            "Regel": row["raw_line"],
-            "Stof": fabric,
-            "Breedte/Hoogte (cm)": f"{int(width_cm)} x {int(height_cm)}",
-            "Staffel breedte": int(w_round) if w_round else "N/A",
-            "Staffel hoogte": int(h_round) if h_round else "N/A",
-            "Factuurprijs": _format_euro(factuurprijs),
-        }
-
-        # -------------------------
-        # 4. Geen matrix beschikbaar?
-        # -------------------------
-        if not matrix_ok:
-            for plooi in PLOOI_TYPES:
-                rec[plooi] = "N/A"
-            rec["Plooi match"] = "Geen matrix"
-            rec["Verschil"] = ""
-            results.append(rec)
-
-            if progress_callback:
-                progress_callback(idx + 1, total)
+        matrix_path = get_matrix_path_for_fabric(supplier_key, fabric)
+        if not matrix_path:
+            results.append({
+                "Stof": fabric,
+                "Afgerond": "N/A",
+                "Factuurprijs": invoice_price,
+                "Enkele plooi": "N/A",
+                "Dubbele plooi": "N/A",
+                "Wave plooi": "N/A",
+                "Ring": "N/A",
+                "Match": "❌ Geen matrix gevonden",
+                "Verschil": "N/A"
+            })
             continue
 
-        # -------------------------
-        # 5. Plooiprijzen ophalen
-        # -------------------------
+        try:
+            matrices, width_steps, height_steps = load_price_matrices_from_excel(matrix_path)
+        except Exception as e:
+            results.append({
+                "Stof": fabric,
+                "Afgerond": "N/A",
+                "Factuurprijs": invoice_price,
+                "Enkele plooi": "N/A",
+                "Dubbele plooi": "N/A",
+                "Wave plooi": "N/A",
+                "Ring": "N/A",
+                "Match": f"❌ Matrix fout: {e}",
+                "Verschil": "N/A"
+            })
+            continue
+
+        rounded_w = round_up_to_matrix(width_mm / 10, width_steps)
+        rounded_h = round_up_to_matrix(height_mm / 10, height_steps)
+
         plooi_prices = {}
+        best_match = None
+        best_diff = None
 
         for plooi in PLOOI_TYPES:
-            mat = matrices.get(plooi)
-            if mat is None:
-                plooi_prices[plooi] = None
-                rec[plooi] = "N/A"
+            df = matrices.get(plooi)
+            if df is None:
+                plooi_prices[plooi] = "N/A"
                 continue
 
-            if w_round in mat["widths"] and h_round in mat["heights"]:
-                row_idx = mat["heights"].index(h_round)
-                col_idx = mat["widths"].index(w_round)
-                price = mat["grid"][row_idx][col_idx]
-                plooi_prices[plooi] = price
-                rec[plooi] = _format_euro(price)
-            else:
-                plooi_prices[plooi] = None
-                rec[plooi] = "N/A"
-
-        # -------------------------
-        # 6. Beste plooi of "Niet zeker"
-        # -------------------------
-        direct_match = None
-        closest_match_plooi = None
-        closest_diff = None
-
-        for plooi, price in plooi_prices.items():
-            if price is None:
+            try:
+                price = df.loc[rounded_h, rounded_w]
+            except Exception:
+                plooi_prices[plooi] = "N/A"
                 continue
 
-            diff = factuurprijs - price
+            plooi_prices[plooi] = price
 
-            # directe match
-            if abs(diff) < 0.01:
-                direct_match = (plooi, diff)
-                break
+            diff = invoice_price - price
+            if best_diff is None or abs(diff) < abs(best_diff):
+                best_diff = diff
+                best_match = plooi
 
-            # dichtstbijzijnde match
-            if closest_diff is None or abs(diff) < abs(closest_diff):
-                closest_diff = diff
-                closest_match_plooi = plooi
+        formatted_diff = f"€{best_diff:+.2f}" if best_diff is not None else "N/A"
 
-        if direct_match:
-            rec["Plooi match"] = direct_match[0]
-            rec["Verschil"] = _format_diff(direct_match[1])
-        else:
-            rec["Plooi match"] = "Niet zeker" if closest_match_plooi else "N/A"
-            rec["Verschil"] = _format_diff(closest_diff) if closest_diff else ""
-
-        results.append(rec)
-
-        # -------------------------
-        # 7. Progressie bijwerken
-        # -------------------------
-        if progress_callback:
-            progress_callback(idx + 1, total)
+        results.append({
+            "Stof": fabric,
+            "Afgerond": f"{rounded_w} x {rounded_h}",
+            "Factuurprijs": f"€{invoice_price:.2f}",
+            "Enkele plooi": f"€{plooi_prices['Enkele plooi']:.2f}" if plooi_prices["Enkele plooi"] != "N/A" else "N/A",
+            "Dubbele plooi": f"€{plooi_prices['Dubbele plooi']:.2f}" if plooi_prices["Dubbele plooi"] != "N/A" else "N/A",
+            "Wave plooi": f"€{plooi_prices['Wave plooi']:.2f}" if plooi_prices["Wave plooi"] != "N/A" else "N/A",
+            "Ring": f"€{plooi_prices['Ring']:.2f}" if plooi_prices["Ring"] != "N/A" else "N/A",
+            "Match": best_match if best_match else "Niet zeker",
+            "Verschil": formatted_diff
+        })
 
     return results
