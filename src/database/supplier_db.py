@@ -2,27 +2,56 @@ import json
 import os
 
 
+# ----------------------------------------
+# 1. Load suppliers.json
+# ----------------------------------------
 def load_suppliers():
     """
-    Laadt de leveranciersconfiguratie uit data/suppliers.json
+    Leest de JSON in met alle leveranciers, stoffen en matrixpaden.
     """
-    path = os.path.join("data", "suppliers.json")
+    path = "data/suppliers.json"
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"suppliers.json niet gevonden op: {path}")
+
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def get_supplier_matrix_path(suppliers, supplier_key, fabric_key="corsa"):
+# ----------------------------------------
+# 2. Haal alle stofnamen van een leverancier op
+# ----------------------------------------
+def get_fabric_list(supplier_data):
     """
-    Haalt het pad naar de matrix voor een bepaalde leverancier + stof.
-    Voor nu standaard stof 'corsa' (waar 'cosa' ook onder valt).
+    Returnt een lijst met officiële stofnamen voor een leverancier.
     """
-    supplier = suppliers.get(supplier_key)
-    if not supplier:
-        raise KeyError(f"Onbekende leverancier: {supplier_key}")
+    return list(supplier_data["fabrics"].keys())
 
-    fabrics = supplier.get("fabrics", {})
-    fabric_info = fabrics.get(fabric_key)
-    if not fabric_info:
-        raise KeyError(f"Stof '{fabric_key}' niet gevonden voor leverancier '{supplier_key}'")
 
-    return fabric_info["matrix_path"]
+# ----------------------------------------
+# 3. Geef matrix-pad voor specifieke stof
+# ----------------------------------------
+def get_matrix_path_for_fabric(supplier_data, fabric_name):
+    """
+    Zoekt de juiste matrix-file voor een stof.
+    Als deze niet bestaat → foutmelding.
+    """
+    fabrics = supplier_data["fabrics"]
+
+    if fabric_name in fabrics:
+        return fabrics[fabric_name]["matrix_path"]
+    
+    raise ValueError(
+        f"Geen matrix gevonden voor stof '{fabric_name}'. "
+        f"Beschikbare stoffen: {', '.join(fabrics.keys())}"
+    )
+
+
+# ----------------------------------------
+# 4. Controle of matrixpacket bestaat
+# ----------------------------------------
+def verify_matrix_file(matrix_path):
+    """
+    Controleert of het matrixbestand werkelijk bestaat.
+    Returnt True/False.
+    """
+    return os.path.exists(matrix_path)
