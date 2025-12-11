@@ -1,8 +1,6 @@
-import pandas as pd
 from src.database.supplier_db import load_suppliers, get_matrix_path_for_fabric
 from src.matrix.matrix_loader import load_price_matrices_from_excel
 from src.utils.rounding import round_up_to_matrix
-
 
 PLOOI_TYPES = ["Enkele plooi", "Dubbele plooi", "Wave plooi", "Ring"]
 
@@ -20,7 +18,7 @@ def _format_diff(diff):
     return f"{sign}€{diff:.2f}".replace(".", ",")
 
 
-def evaluate_rows(rows, supplier_key="toppoint"):
+def evaluate_rows(rows, supplier_key="toppoint", progress_callback=None):
     """
     Voor ELKE regel:
     - juiste stof bepalen
@@ -28,15 +26,18 @@ def evaluate_rows(rows, supplier_key="toppoint"):
     - staffelmaten zoeken
     - plooiprijzen ophalen
     - match bepalen
+
+    progress_callback(optional): functie die wordt aangeroepen als
+    progress_callback(done, total)
     """
 
     suppliers = load_suppliers()
     supplier = suppliers[supplier_key]
 
     results = []
+    total = len(rows)
 
-    for row in rows:
-
+    for idx, row in enumerate(rows):
         fabric = row["fabric"]
         width_mm = row["width_mm"]
         height_mm = row["height_mm"]
@@ -70,7 +71,7 @@ def evaluate_rows(rows, supplier_key="toppoint"):
             h_round = None
 
         # -------------------------
-        # 3. Prepareer record
+        # 3. Record basis
         # -------------------------
         rec = {
             "Regel": row["raw_line"],
@@ -90,6 +91,9 @@ def evaluate_rows(rows, supplier_key="toppoint"):
             rec["Plooi match"] = "Geen matrix"
             rec["Verschil"] = ""
             results.append(rec)
+
+            if progress_callback:
+                progress_callback(idx + 1, total)
             continue
 
         # -------------------------
@@ -101,20 +105,18 @@ def evaluate_rows(rows, supplier_key="toppoint"):
             mat = matrices.get(plooi)
             if mat is None:
                 plooi_prices[plooi] = None
+                rec[plooi] = "N/A"
                 continue
 
             if w_round in mat["widths"] and h_round in mat["heights"]:
                 row_idx = mat["heights"].index(h_round)
                 col_idx = mat["widths"].index(w_round)
-                plooi_prices[plooi] = mat["grid"][row_idx][col_idx]
+                price = mat["grid"][row_idx][col_idx]
+                plooi_prices[plooi] = price
+                rec[plooi] = _format_euro(price)
             else:
                 plooi_prices[plooi] = None
-
-            rec[plooi] = (
-                _format_euro(plooi_prices[plooi])
-                if plooi_prices[plooi] is not None
-                else "N/A"
-            )
+                rec[plooi] = "N/A"
 
         # -------------------------
         # 6. Beste plooi of "Niet zeker"
@@ -147,5 +149,11 @@ def evaluate_rows(rows, supplier_key="toppoint"):
             rec["Verschil"] = _format_diff(closest_diff) if closest_diff else ""
 
         results.append(rec)
+
+        # -------------------------
+        # 7. Progressie bijwerken
+        # -------------------------
+        if progress_callback:
+            progress_callback(idx + 1, total)
 
     return results
