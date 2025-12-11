@@ -1,96 +1,111 @@
-def evaluate_rows(rows, matrices):
+import re
+
+def normalize_stofnaam(stof_raw: str) -> str:
     """
-    Vergelijkt elke factuurregel met de juiste prijsmatrix en berekent plooi-prijzen.
+    Zet ruwe stofnaam uit factuur om naar een gestandaardiseerde naam.
+    Werkt met substring matching.
     """
 
+    stof_raw = stof_raw.lower().strip()
+
+    mapping = {
+        "cosa": "cosa",
+        "corsa": "cosa",     # fout in PDF → fix
+        "mixx": "mixx",
+        "bo mixx": "bo mixx",
+        "b0 mixx": "bo mixx",
+        "dos lados": "dos lados",
+        "isola": "isola",
+        "mey": "mey",
+        "marsa": "marsa",
+        "matiz": "matiz",
+        "hamilton": "hamilton",
+        "saludo": "saludo",
+        "texture": "texture",
+        "vintage": "vintage",
+        "voile": "voile",
+        "cotton fr": "cotton fr",
+        "inbetween voile": "voile",
+        "inbetween": "voile",
+        "between": "between",
+        "color": "color",
+    }
+
+    for key, value in mapping.items():
+        if key in stof_raw:
+            return value
+
+    return stof_raw  # fallback
+
+
+def round_dimension(value_mm: int):
+    """Zet mm om naar cm en rond af op staffels van 10."""
+    cm = value_mm / 10
+    afgerond = int(round(cm / 10) * 10)
+    return afgerond
+
+
+def evaluate_rows(rows, matrices):
     results = []
 
     for row in rows:
-
-        stof = row["stof"]
-        breedte = row["breedte"]
-        hoogte = row["hoogte"]
+        stof = normalize_stofnaam(row["stof"])
+        breedte = round_dimension(row["breedte"])
+        hoogte = round_dimension(row["hoogte"])
         factuurprijs = row["prijs"]
 
-        # Normalize stofnaam
-        stof_norm = stof.lower().strip()
-
-        # Matching stof op basis van beginsel
-        chosen_matrix = None
-        for key in matrices.keys():
-            if stof_norm.startswith(key):
-                chosen_matrix = matrices[key]
-                break
-
-        if chosen_matrix is None:
+        if stof not in matrices:
             results.append({
-                "Stof": stof,
-                "Afgerond": f"{breedte} x {hoogte}",
-                "Factuurprijs": factuurprijs,
-                "Enkele plooi": "N/A",
-                "Dubbele plooi": "N/A",
-                "Wave plooi": "N/A",
-                "Ring": "N/A",
-                "Beste plooi": "Geen matrix",
-                "Verschil": "N/A"
+                "stof": stof,
+                "afgerond": f"{breedte} x {hoogte}",
+                "factuurprijs": factuurprijs,
+                "status": "Geen matrix gevonden",
+                "plooi": "N/A",
+                "verschil": "N/A"
             })
             continue
 
-        df = chosen_matrix["df"]
-        index_vals = chosen_matrix["index"]
-        col_vals = chosen_matrix["columns"]
+        df = matrices[stof]
 
-        # Stap 1: afronden volgens staffels
-        def round_to_staffel(value, staffel_list):
-            return min(staffel_list, key=lambda x: abs(x - value))
+        prijzen_per_plooi = {}
 
-        rounded_w = round_to_staffel(breedte, col_vals)
-        rounded_h = round_to_staffel(hoogte, index_vals)
-
-        plooi_prices = {}
-
-        # Elke plooi in matrix lezen:
-        for plooi, df in chosen_matrix["matrices"].items():
-
-            print("\n========== DEBUG ==========")
-            print("Stof:", stof)
-            print("Plooi:", plooi)
-            print("Rounded W:", rounded_w, type(rounded_w))
-            print("Rounded H:", rounded_h, type(rounded_h))
-            print("DF index type:", type(df.index[0]))
-            print("DF col type:", type(df.columns[0]))
-            print("DF shape:", df.shape)
-
+        for plooi in df.index:
             try:
-                price = df.loc[rounded_h, rounded_w]
-                plooi_prices[plooi] = price
-            except Exception as e:
-                print("LOOKUP ERROR:", e)
-                plooi_prices[plooi] = "N/A"
+                prijs = df.loc[plooi, breedte]
+            except:
+                prijs = None
 
-        # Bepaal beste plooi:
-        beste_plooi = "Niet zeker"
-        verschil = "N/A"
+            prijzen_per_plooi[plooi] = prijs
 
-        # Filter alleen plooi-prijzen die echt bestaan:
-        valid_prices = {p: v for p, v in plooi_prices.items() if isinstance(v, (int, float))}
+        beste_plooi = None
+        beste_prijsverschil = None
 
-        if valid_prices:
-            # Zoek kleinste verschil
-            diffs = {p: abs(factuurprijs - v) for p, v in valid_prices.items()}
-            beste_plooi = min(diffs, key=diffs.get)
-            verschil = f"{factuurprijs - valid_prices[beste_plooi]:+.2f}"
+        for plooi, prijs in prijzen_per_plooi.items():
+            if prijs is None:
+                continue
+
+            verschil = factuurprijs - prijs
+
+            if (beste_prijsverschil is None) or abs(verschil) < abs(beste_prijsverschil):
+                beste_plooi = plooi
+                beste_prijsverschil = verschil
+
+        if beste_plooi is None:
+            results.append({
+                "stof": stof,
+                "afgerond": f"{breedte} x {hoogte}",
+                "factuurprijs": factuurprijs,
+                "plooi": "N/A",
+                "verschil": "N/A",
+            })
+            continue
 
         results.append({
-            "Stof": stof,
-            "Afgerond": f"{rounded_w} x {rounded_h}",
-            "Factuurprijs": factuurprijs,
-            "Enkele plooi": plooi_prices.get("Enkele plooi", "N/A"),
-            "Dubbele plooi": plooi_prices.get("Dubbele plooi", "N/A"),
-            "Wave plooi": plooi_prices.get("Wave plooi", "N/A"),
-            "Ring": plooi_prices.get("Ring", "N/A"),
-            "Beste plooi": beste_plooi,
-            "Verschil": verschil
+            "stof": stof,
+            "afgerond": f"{breedte} x {hoogte}",
+            "factuurprijs": factuurprijs,
+            "plooi": beste_plooi,
+            "verschil": round(beste_prijsverschil, 2),
         })
 
     return results
