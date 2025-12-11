@@ -1,4 +1,5 @@
 import re
+import io
 from src.database.supplier_db import load_suppliers
 
 
