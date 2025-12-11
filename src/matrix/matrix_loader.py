@@ -1,53 +1,34 @@
+import os
 import pandas as pd
 
-def load_price_matrices_from_excel(path):
+DATA_DIR = "data/matrices"
+
+def load_supplier_matrices(supplier: str):
     """
-    Laadt prijsmatrixen (4 plooi-type tabs) en maakt ALLE indexen + kolommen integers,
-    zelfs als Excel strings, floats, spaties of 'Unnamed: 0' bevat.
+    Laadt ALLE prijsmatrixen binnen data/matrices/<supplier>/ automatisch.
+    Geeft dict terug: {stofnaam: dataframe}
     """
 
-    sheets = ["Enkele plooi", "Dubbele plooi", "Wave plooi", "Ring"]
+    supplier_path = os.path.join(DATA_DIR, supplier)
+    if not os.path.isdir(supplier_path):
+        raise FileNotFoundError(
+            f"Map voor leverancier '{supplier}' bestaat niet: {supplier_path}"
+        )
+
     matrices = {}
 
-    try:
-        excel = pd.ExcelFile(path)
-    except Exception as e:
-        raise ValueError(f"Kan Excel niet openen: {e}")
-
-    for sheet in sheets:
-        if sheet not in excel.sheet_names:
-            matrices[sheet] = None
+    for file in os.listdir(supplier_path):
+        if not file.lower().endswith(".xlsx"):
             continue
 
-        # Lees sheet + forceer eerste kolom als index
-        df = excel.parse(sheet, header=0)
+        stofnaam = file.replace(" price matrix.xlsx", "").strip().lower()
 
-        # Eerste kolom is hoogte → hernoemen en set_index
-        first_col = df.columns[0]
-        df = df.rename(columns={first_col: "height"}).set_index("height")
+        full_path = os.path.join(supplier_path, file)
+        df = pd.read_excel(full_path, index_col=0)
 
-        # --- ALTIJD integer index erzorgen ---
-        df.index = (
-            df.index.astype(str)          # alles naar string
-                     .str.replace(r"[^\d]+", "", regex=True)  # strip niet-cijfers
-                     .astype(int)         # terug naar int
-        )
+        df.index = df.index.astype(int)
+        df.columns = df.columns.astype(int)
 
-        # --- ALTIJD integer kolommen erzorgen ---
-        df.columns = (
-            df.columns.astype(str)
-                      .str.replace(r"[^\d]+", "", regex=True)
-                      .astype(int)
-        )
+        matrices[stofnaam] = df
 
-        # Waarden numeric
-        df = df.apply(pd.to_numeric, errors="coerce")
-
-        matrices[sheet] = df
-
-    # Verzamel breedtes en hoogtes uit eerste matrix
-    main_df = matrices["Enkele plooi"]
-    width_steps = list(main_df.columns)
-    height_steps = list(main_df.index)
-
-    return matrices, width_steps, height_steps
+    return matrices
