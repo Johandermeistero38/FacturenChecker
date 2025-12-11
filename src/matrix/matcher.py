@@ -1,111 +1,77 @@
 import re
+import math
 
-def normalize_stofnaam(stof_raw: str) -> str:
-    """
-    Zet ruwe stofnaam uit factuur om naar een gestandaardiseerde naam.
-    Werkt met substring matching.
-    """
+# Herken stof uit regel
+def detect_stof(row_text, available_matrices):
+    row_text = row_text.lower()
 
-    stof_raw = stof_raw.lower().strip()
-
-    mapping = {
-        "cosa": "cosa",
-        "corsa": "cosa",     # fout in PDF → fix
-        "mixx": "mixx",
-        "bo mixx": "bo mixx",
-        "b0 mixx": "bo mixx",
-        "dos lados": "dos lados",
-        "isola": "isola",
-        "mey": "mey",
-        "marsa": "marsa",
-        "matiz": "matiz",
-        "hamilton": "hamilton",
-        "saludo": "saludo",
-        "texture": "texture",
-        "vintage": "vintage",
-        "voile": "voile",
-        "cotton fr": "cotton fr",
-        "inbetween voile": "voile",
-        "inbetween": "voile",
-        "between": "between",
-        "color": "color",
-    }
-
-    for key, value in mapping.items():
-        if key in stof_raw:
-            return value
-
-    return stof_raw  # fallback
+    for stof in available_matrices:
+        if stof in row_text:
+            return stof
+    return None
 
 
-def round_dimension(value_mm: int):
-    """Zet mm om naar cm en rond af op staffels van 10."""
-    cm = value_mm / 10
-    afgerond = int(round(cm / 10) * 10)
-    return afgerond
+def round_to_matrix(value):
+    value = int(value)
+    remainder = value % 10
+    if remainder == 0:
+        return value
+    return value + (10 - remainder)
+
+
+def extract_sizes(text):
+    match = re.search(r"(\d+)\s*[xX]\s*(\d+)", text)
+    if not match:
+        return None, None
+
+    b = int(match.group(1)) / 10  # mm → cm
+    h = int(match.group(2)) / 10
+
+    return round_to_matrix(b), round_to_matrix(h)
 
 
 def evaluate_rows(rows, matrices):
     results = []
 
     for row in rows:
-        stof = normalize_stofnaam(row["stof"])
-        breedte = round_dimension(row["breedte"])
-        hoogte = round_dimension(row["hoogte"])
-        factuurprijs = row["prijs"]
+        regel = row["text"]
+        prijs = row["price"]
 
-        if stof not in matrices:
+        stof = detect_stof(regel, matrices.keys())
+        if not stof:
             results.append({
-                "stof": stof,
-                "afgerond": f"{breedte} x {hoogte}",
-                "factuurprijs": factuurprijs,
-                "status": "Geen matrix gevonden",
-                "plooi": "N/A",
-                "verschil": "N/A"
+                "Stof": "Onbekend",
+                "Regel": regel,
+                "Factuurprijs": prijs,
+                "Opmerking": "Stof niet gevonden"
             })
             continue
 
-        df = matrices[stof]
-
-        prijzen_per_plooi = {}
-
-        for plooi in df.index:
-            try:
-                prijs = df.loc[plooi, breedte]
-            except:
-                prijs = None
-
-            prijzen_per_plooi[plooi] = prijs
-
-        beste_plooi = None
-        beste_prijsverschil = None
-
-        for plooi, prijs in prijzen_per_plooi.items():
-            if prijs is None:
-                continue
-
-            verschil = factuurprijs - prijs
-
-            if (beste_prijsverschil is None) or abs(verschil) < abs(beste_prijsverschil):
-                beste_plooi = plooi
-                beste_prijsverschil = verschil
-
-        if beste_plooi is None:
+        breedte, hoogte = extract_sizes(regel)
+        if not breedte or not hoogte:
             results.append({
-                "stof": stof,
-                "afgerond": f"{breedte} x {hoogte}",
-                "factuurprijs": factuurprijs,
-                "plooi": "N/A",
-                "verschil": "N/A",
+                "Stof": stof,
+                "Regel": regel,
+                "Factuurprijs": prijs,
+                "Opmerking": "Maten niet gevonden"
             })
             continue
+
+        matrix = matrices[stof]
+
+        try:
+            matrix_prijs = matrix.loc[hoogte, breedte]
+        except:
+            matrix_prijs = None
 
         results.append({
-            "stof": stof,
-            "afgerond": f"{breedte} x {hoogte}",
-            "factuurprijs": factuurprijs,
-            "plooi": beste_plooi,
-            "verschil": round(beste_prijsverschil, 2),
+            "Stof": stof,
+            "Regel": regel,
+            "Breedte": breedte,
+            "Hoogte": hoogte,
+            "Matrixprijs": matrix_prijs,
+            "Factuurprijs": prijs,
+            "Verschil": round(prijs - matrix_prijs, 2) if matrix_prijs else "N/A"
         })
 
     return results
