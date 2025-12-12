@@ -1,130 +1,198 @@
-import re
-import io
-
-import pdfplumber
-from src.database.supplier_db import load_suppliers
-
-
-# ---------------------------------
-# 1. Leveranciers + stoffen laden
-# ---------------------------------
-suppliers = load_suppliers()
-toppoint_data = suppliers["toppoint"]
-toppoint_fabrics = toppoint_data["fabrics"]
-
-
-# ---------------------------------
-# 2. Stof herkennen in tekst
-#    - match alleen hele woorden
-#    - kies de langste match
-# ---------------------------------
-def detect_fabric(text: str):
-    """
-    Zoekt in de tekst naar een geldige stofnaam of alias uit suppliers.json.
-    - gebruikt woordgrenzen (\b) zodat 'between' niet matcht in 'inbetween'
-    - kiest de langste match als er meerdere mogelijkheden zijn
-    Returnt de OFFICIËLE stofnaam (de key in suppliers.json), of None.
-    """
-    text_lower = text.lower()
-    best_match = None
-    best_length = 0
-
-    for fabric_name, config in toppoint_fabrics.items():
-        # 1) officiële naam checken
-        name_pattern = r"\b" + re.escape(fabric_name.lower()) + r"\b"
-        if re.search(name_pattern, text_lower):
-            if len(fabric_name) > best_length:
-                best_match = fabric_name
-                best_length = len(fabric_name)
-
-        # 2) aliassen checken
-        for alias in config.get("aliases", []):
-            alias = alias.strip().lower()
-            if not alias:
-                continue
-
-            alias_pattern = r"\b" + re.escape(alias) + r"\b"
-            if re.search(alias_pattern, text_lower):
-                if len(alias) > best_length:
-                    best_match = fabric_name
-                    best_length = len(alias)
-
-    return best_match
-
-
-# ---------------------------------
-# 3. Breedte & hoogte detecteren
-# ---------------------------------
-SIZE_PATTERN = re.compile(r"(\d+)\s*[xX]\s*(\d+)")
-
-
-# ---------------------------------
-# 4. Prijs detecteren
-# ---------------------------------
-PRICE_PATTERN = re.compile(r"(\d+[\.,]\d{2})")
-
-
-# ---------------------------------
-# 5. Parser functie
-# ---------------------------------
-def parse_invoice_pdf(content: bytes):
-    """
-    Leest de PDF in met pdfplumber en probeert per regel te bepalen:
-    - stof (fabric)
-    - optionele stofkleur (fabric_code, bijv. (7))
-    - breedte & hoogte in mm
-    - factuurprijs
-    - raw_line (originele tekst)
-    """
-    rows = []
-
-    with pdfplumber.open(io.BytesIO(content)) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if not text:
-                continue
-
-            for line in text.split("\n"):
-                line_stripped = line.strip()
-                if not line_stripped:
-                    continue
-
-                # --- Stof ---
-                fabric = detect_fabric(line_stripped)
-                if not fabric:
-                    # geen bekende stof gevonden → sla deze regel over
-                    continue
-
-                # --- Afmetingen ---
-                size_match = SIZE_PATTERN.search(line_stripped)
-                if not size_match:
-                    continue
-
-                width_mm = int(size_match.group(1))
-                height_mm = int(size_match.group(2))
-
-                # --- Prijs ---
-                price_match = PRICE_PATTERN.search(line_stripped)
-                if not price_match:
-                    continue
-
-                price_str = price_match.group(1).replace(",", ".")
-                invoice_price = float(price_str)
-
-                # --- Stofkleur (optioneel, bijv. "(7)") ---
-                color_code_match = re.search(r"\((\d+)\)", line_stripped)
-                fabric_code = color_code_match.group(1) if color_code_match else ""
-
-                # --- Record toevoegen ---
-                rows.append(
-                    {
-                        "fabric": fabric,           # officiële naam uit suppliers.json
-                        "fabric_code": fabric_code,
-                        "width_mm": width_mm,
-                        "height_mm": height_mm,
-                        "invoice_price": invoice_price,
-                        "raw_line": line_stripped,
-                    }
-                )
-
-    return rows
+diff --git a/src/matrix/matrix_loader.py b/src/matrix/matrix_loader.py
+index 86005247faccb73267afd8d8783ddfce2fea5ce1..e4b88e78c5aa45f266491098df016e9f712c8d84 100644
+--- a/src/matrix/matrix_loader.py
++++ b/src/matrix/matrix_loader.py
+@@ -1,150 +1,64 @@
+ import pandas as pd
+ 
+-def load_price_matrices_from_excel(excel_file):
+-    matrices = {}
+-    xls = pd.ExcelFile(excel_file)
+-
+-    for sheet in xls.sheet_names:
+-        df = pd.read_excel(xls, sheet_name=sheet, header=None)
+-
+-        # verwijder lege rijen / kolommen
+-        df = df.dropna(axis=0, how="all")
+-        df = df.dropna(axis=1, how="all")
+-
+-        # eerste rij = breedtes, maar kolom A is leeg → breedtes beginnen bij kolom B
+-        widths = []
+-        for val in df.iloc[0, 1:].tolist():
+-            if isinstance(val, (int, float)):
+-                widths.append(float(val))
+-
+-        # eerste kolom vanaf rij 2 = hoogtes
+-        heights = []
+-        for val in df.iloc[1:, 0].tolist():
+-            if isinstance(val, (int, float)):
+-                heights.append(float(val))
+-
+-        # prijsgebied = B2 t/m einde
+-        price_df = df.iloc[1:1+len(heights), 1:1+len(widths)]
+-        price_df.columns = widths
+-        price_df.index = heights
+-
+-        lookup = {}
+-        for h in heights:
+-            for w in widths:
+-                v = price_df.at[h, w]
+-                if not pd.isna(v):
+-                    lookup[(h, w)] = float(v)
+-
+-        matrices[sheet] = {
+-            "widths": sorted(widths),
+-            "heights": sorted(heights),
+-            "prices": lookup
+-        }
++from src.database.supplier_db import load_supplier_config
++
++
++PLOOI_TYPES = ["Enkele plooi", "Dubbele plooi", "Wave plooi", "Ring"]
++
++
++def _to_float(value):
++    try:
++        return float(str(value).replace(",", "."))
++    except Exception:
++        return None
+ 
+-    return matrices
+-import pandas as pd
+ 
+-def load_price_matrices_from_excel(excel_file):
+ def load_price_matrices_from_excel(path):
+     """
+-    Leest een Excel bestand met meerdere tabbladen (Enkele plooi, Dubbele plooi, Wave plooi, Ring)
+-    en zet elke matrix om naar een gestandaardiseerd formaat:
+-
+-    {
+-        "Enkele plooi": {
+-            "widths": [...],
+-            "heights": [...],
+-            "grid": [[...], [...], ...]
+-        },
+-        "Dubbele plooi": {...},
+-        ...
+-    }
++    Laadt de prijsmatrices uit één Excelbestand.
++    Elke sheet vertegenwoordigt een plooitype.
+     """
+-
+     xls = pd.ExcelFile(path)
+     matrices = {}
+-    xls = pd.ExcelFile(excel_file)
+-
+-    for sheet in xls.sheet_names:
+-        df = pd.read_excel(xls, sheet_name=sheet, header=None)
+-
+-        # verwijder lege rijen / kolommen
+-        df = df.dropna(axis=0, how="all")
+-        df = df.dropna(axis=1, how="all")
+-
+-        # eerste rij = breedtes, maar kolom A is leeg → breedtes beginnen bij kolom B
+-        widths = []
+-        for val in df.iloc[0, 1:].tolist():
+-            if isinstance(val, (int, float)):
+-                widths.append(float(val))
+-
+-        # eerste kolom vanaf rij 2 = hoogtes
+-        heights = []
+-        for val in df.iloc[1:, 0].tolist():
+-            if isinstance(val, (int, float)):
+-                heights.append(float(val))
+-
+-        # prijsgebied = B2 t/m einde
+-        price_df = df.iloc[1:1+len(heights), 1:1+len(widths)]
+-        price_df.columns = widths
+-        price_df.index = heights
+-
+-        lookup = {}
+-        for h in heights:
+-            for w in widths:
+-                v = price_df.at[h, w]
+-                if not pd.isna(v):
+-                    lookup[(h, w)] = float(v)
+-
+-        matrices[sheet] = {
+-            "widths": sorted(widths),
+-            "heights": sorted(heights),
+-            "prices": lookup
+-    for sheet_name in xls.sheet_names:
+ 
+-        df = pd.read_excel(path, sheet_name=sheet_name, header=None)
++    for sheet_name in xls.sheet_names:
++        df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+ 
+-        # -----------------------------
+-        # Controle: is de sheet leeg?
+-        # -----------------------------
+         if df.empty:
+             continue
+ 
+-        # -----------------------------
+-        # 1. Breedtes staan in rij 0, vanaf kolom 1
+-        # -----------------------------
+-        widths = df.iloc[0, 1:].tolist()
+-
+-        # -----------------------------
+-        # 2. Hoogtes staan in kolom 0, vanaf rij 1
+-        # -----------------------------
+-        heights = df.iloc[1:, 0].tolist()
+-
+-        # -----------------------------
+-        # 3. De daadwerkelijke prijs-matrix
+-        # -----------------------------
+-        grid = df.iloc[1:, 1:].values.tolist()
+-
+-        # -----------------------------
+-        # Alles converteren naar floats
+-        # -----------------------------
+-        def to_float(v):
+-            try:
+-                return float(str(v).replace(",", "."))
+-            except:
+-                return None
+-
+-        widths = [to_float(v) for v in widths]
+-        heights = [to_float(v) for v in heights]
+-
+-        clean_grid = []
+-        for row in grid:
+-            clean_grid.append([to_float(v) for v in row])
++        widths = [_to_float(v) for v in df.iloc[0, 1:].tolist()]
++        heights = [_to_float(v) for v in df.iloc[1:, 0].tolist()]
++        grid_raw = df.iloc[1:, 1:].values.tolist()
++        grid = [[_to_float(v) for v in row] for row in grid_raw]
+ 
+         matrices[sheet_name] = {
+             "widths": widths,
+             "heights": heights,
+-            "grid": clean_grid
++            "grid": grid,
+         }
+ 
+     return matrices
++
++
++def load_price_matrices(supplier_key: str):
++    """
++    Laadt alle prijsmatrices voor een leverancier en groepeert ze per stof.
++    Resultaatvorm:
++    {
++        "Cosa": {<plooi-matrices>},
++        "Isola": {<plooi-matrices>},
++        ...
++    }
++    """
++    supplier_config = load_supplier_config(supplier_key)
++    matrices = {}
++
++    for fabric_name, config in supplier_config["fabrics"].items():
++        matrix_path = config.get("matrix_path")
++        if not matrix_path:
++            continue
++
++        matrices[fabric_name] = load_price_matrices_from_excel(matrix_path)
++
++    return matrices
